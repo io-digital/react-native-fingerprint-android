@@ -1,6 +1,10 @@
 package io.jari.fingerprint;
 
 import android.Manifest;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
 import android.content.pm.PackageManager;
 import android.support.v4.hardware.fingerprint.FingerprintManagerCompat;
 import android.support.v4.os.CancellationSignal;
@@ -11,15 +15,18 @@ import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 import com.facebook.react.bridge.WritableNativeMap;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
+import static com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter;
 
 import java.util.HashMap;
 import java.util.Map;
 
 @SuppressWarnings("MissingPermission")
 public class FingerprintModule extends ReactContextBaseJavaModule {
+
+    // this string may change with future android releases
+    private static String ACTION_LOCKOUT_RESET = "com.android.server.fingerprint.ACTION_LOCKOUT_RESET";
+
     FingerprintManagerCompat fingerprintManager;
-    ReactApplicationContext reactContext;
     CancellationSignal cancellationSignal;
     boolean isCancelled = false;
 
@@ -27,11 +34,23 @@ public class FingerprintModule extends ReactContextBaseJavaModule {
 
     final int FINGERPRINT_ERROR_CANCELED = 5;
 
-    public FingerprintModule(ReactApplicationContext reactContext) {
-        super(reactContext);
+    public FingerprintModule(ReactApplicationContext rctx) {
+        super(rctx);
+        this.fingerprintManager = FingerprintManagerCompat.from(rctx);
+        rctx.registerReceiver(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                if (ACTION_LOCKOUT_RESET.equals(intent.getAction())) {
+                    sendEvent("fingerPrintLockoutEnded", new WritableNativeMap());
+                }
+            }
+        }, new IntentFilter(ACTION_LOCKOUT_RESET), null, null);
+    }
 
-        this.reactContext = reactContext;
-        this.fingerprintManager = FingerprintManagerCompat.from(reactContext);
+    private sendEvent(String event, WritableNativeMap map) {
+        getReactApplicationContext().getJSModule(
+            RCTDeviceEventEmitter.class
+        ).emit(event, map);
     }
 
     // Harcdoded from https://developer.android.com/reference/android/hardware/fingerprint/FingerprintManager.html#FINGERPRINT_ACQUIRED_GOOD
@@ -58,7 +77,12 @@ public class FingerprintModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void hasPermission(Promise promise) {
         try {
-            promise.resolve(ActivityCompat.checkSelfPermission(reactContext, Manifest.permission.USE_FINGERPRINT) == PackageManager.PERMISSION_GRANTED);
+            promise.resolve(
+                ActivityCompat.checkSelfPermission(
+                    getReactApplicationContext(),
+                    Manifest.permission.USE_FINGERPRINT
+                ) == PackageManager.PERMISSION_GRANTED
+            );
         } catch (Exception ex) {
             promise.reject(ex);
         }
@@ -157,9 +181,7 @@ public class FingerprintModule extends ReactContextBaseJavaModule {
             WritableNativeMap writableNativeMap = new WritableNativeMap();
             writableNativeMap.putInt("code", helpCode);
             writableNativeMap.putString("message", helpString.toString());
-            reactContext
-                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                    .emit("fingerPrintAuthenticationHelp", writableNativeMap);
+            sendEvent("fingerPrintAuthenticationHelp", writableNativeMap);
         }
 
         @Override
@@ -175,13 +197,10 @@ public class FingerprintModule extends ReactContextBaseJavaModule {
         @Override
         public void onAuthenticationFailed() {
             super.onAuthenticationFailed();
-
             WritableNativeMap writableNativeMap = new WritableNativeMap();
             writableNativeMap.putInt("code", FINGERPRINT_ACQUIRED_AUTH_FAILED);
             writableNativeMap.putString("message", "Fingerprint was recognized as not valid.");
-            reactContext
-                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                    .emit("fingerPrintAuthenticationHelp", writableNativeMap);
+            sendEvent("fingerPrintAuthenticationHelp", writableNativeMap);
         }
 
 
