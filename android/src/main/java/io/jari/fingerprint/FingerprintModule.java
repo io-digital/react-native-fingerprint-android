@@ -47,7 +47,7 @@ public class FingerprintModule extends ReactContextBaseJavaModule {
         }, new IntentFilter(ACTION_LOCKOUT_RESET), null, null);
     }
 
-    private sendEvent(String event, WritableNativeMap map) {
+    private void sendEvent(String event, WritableNativeMap map) {
         getReactApplicationContext().getJSModule(
             RCTDeviceEventEmitter.class
         ).emit(event, map);
